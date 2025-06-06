@@ -102,8 +102,8 @@ function displayFiles(files) {
                 <span class="file-size">${formatFileSize(file.size)}</span>
             </div>
             <div class="file-actions">
-                <button onclick="downloadFile('${file._id}')" class="secondary-button">Download</button>
-                <button onclick="deleteFile('${file._id}')" class="secondary-button delete">Delete</button>
+                <button onclick="downloadFile('${file.fileId}')" class="secondary-button">Download</button>
+                <button onclick="deleteFile('${file.fileId}')" class="secondary-button delete">Delete</button>
             </div>
         </div>
     `).join('');
@@ -162,13 +162,24 @@ async function uploadFile(file) {
     formData.append('file', file);
     formData.append('userId', currentUserId);
 
-    const response = await fetch(ENDPOINTS.UPLOAD, {
-        method: 'POST',
-        body: formData
-    });
+    try {
+        const response = await fetch(ENDPOINTS.UPLOAD, {
+            method: 'POST',
+            body: formData
+        });
 
-    if (!response.ok) throw new Error('Upload failed');
-    return response.json();
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Upload failed');
+        }
+
+        const result = await response.json();
+        console.log('Upload success:', result);
+        return result;
+    } catch (error) {
+        console.error('Upload error details:', error);
+        throw error;
+    }
 }
 
 // File actions

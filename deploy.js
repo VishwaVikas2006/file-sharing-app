@@ -106,22 +106,39 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
             return res.status(400).json({ message: 'No file uploaded' });
         }
 
+        if (!req.body.userId) {
+            return res.status(400).json({ message: 'User ID is required' });
+        }
+
         const newFile = new File({
             filename: req.file.originalname,
             contentType: req.file.mimetype,
             size: req.file.size,
             fileId: req.file.id,
-            userId: req.body.userId || 'anonymous',
-            metadata: req.file.metadata
+            userId: req.body.userId,
+            metadata: {
+                ...req.file.metadata,
+                uploadedAt: new Date(),
+                originalName: req.file.originalname
+            }
         });
 
         await newFile.save();
+        console.log('File saved successfully:', {
+            filename: newFile.filename,
+            userId: newFile.userId,
+            fileId: newFile.fileId
+        });
+
         res.status(201).json({ 
             message: 'File uploaded successfully', 
             file: newFile 
         });
     } catch (error) {
         console.error('Upload error:', error);
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ message: 'Invalid file data' });
+        }
         res.status(500).json({ message: 'Error uploading file' });
     }
 });
