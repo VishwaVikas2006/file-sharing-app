@@ -4,7 +4,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const multer = require('multer');
 const { GridFsStorage } = require('multer-gridfs-storage');
-const { connectDB, getGfs } = require('./config/db');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -25,13 +25,17 @@ const nocache = (req, res, next) => {
 
 app.use(nocache);
 
-// Connect to MongoDB
-connectDB().then(() => {
-    console.log('Database connected successfully');
-}).catch(err => {
-    console.error('Failed to connect to database:', err);
-    process.exit(1);
-});
+// Helper function to hash access code
+function hashAccessCode(code) {
+  return crypto.createHash('sha256').update(code).digest('hex');
+}
+
+// MongoDB Connection
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://Vishwa:Vishwa@cluster0.l82ddp2.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 // Update allowed file types
 const ALLOWED_FILE_TYPES = [
@@ -46,7 +50,7 @@ const ALLOWED_FILE_TYPES = [
 
 // GridFS Storage setup
 const storage = new GridFsStorage({
-    url: process.env.MONGODB_URI,
+    url: MONGODB_URI,
     file: (req, file) => {
         return new Promise((resolve, reject) => {
             if (!ALLOWED_FILE_TYPES.includes(file.mimetype)) {
@@ -59,7 +63,7 @@ const storage = new GridFsStorage({
                 filename: filename,
                 bucketName: 'uploads',
                 metadata: {
-                    userId: req.body.userId || 'anonymous',
+                    accessCode: hashAccessCode(req.body.accessCode),
                     contentType: file.mimetype,
                     originalName: file.originalname,
                     uploadedAt: new Date()
@@ -99,21 +103,14 @@ const fileSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         required: true
     },
-    userId: {
+    accessCode: {
         type: String,
         required: true
     },
     metadata: {
         type: Object,
         default: {}
-    },
-    savedBy: [{
-        userId: String,
-        savedAt: {
-            type: Date,
-            default: Date.now
-        }
-    }]
+    }
 });
 
 const File = mongoose.model('File', fileSchema);
@@ -136,110 +133,73 @@ const errorHandler = (err, req, res, next) => {
     res.status(500).json({ message: 'Internal server error' });
 };
 
-// API Routes
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+app.use(errorHandler);
+
+// Routes
+app.post('/api/files/upload', upload.single('file'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ message: 'No file uploaded' });
         }
 
-        if (!req.body.userId) {
-            return res.status(400).json({ message: 'User ID is required' });
+        if (!req.body.accessCode) {
+            return res.status(400).json({ message: 'Access code is required' });
         }
+
+        const hashedAccessCode = hashAccessCode(req.body.accessCode);
 
         const newFile = new File({
             filename: req.file.originalname,
             contentType: req.file.mimetype,
             size: req.file.size,
             fileId: req.file.id,
-            userId: req.body.userId,
+            accessCode: hashedAccessCode,
             metadata: {
-                ...req.file.metadata,
-                uploadedAt: new Date(),
-                originalName: req.file.originalname
+                accessCode: hashedAccessCode,
+                contentType: req.file.mimetype,
+                originalName: req.file.originalname,
+                uploadedAt: new Date()
             }
         });
 
         await newFile.save();
         res.status(201).json({ 
             message: 'File uploaded successfully', 
-            file: newFile 
+            file: {
+                filename: newFile.filename,
+                contentType: newFile.contentType,
+                size: newFile.size,
+                fileId: newFile.fileId
+            }
         });
     } catch (error) {
         console.error('Upload error:', error);
-        if (error.name === 'ValidationError') {
-            return res.status(400).json({ message: 'Invalid file data' });
-        }
-        res.status(500).json({ message: 'Error uploading file' });
+        res.status(500).json({ message: 'Error uploading file: ' + error.message });
     }
 });
 
-app.get('/api/files/user/:userId', async (req, res) => {
+app.get('/api/files/:fileId', async (req, res) => {
     try {
-        if (!req.params.userId) {
-            return res.status(400).json({ message: 'User ID is required' });
+        const accessCode = req.query.accessCode;
+        if (!accessCode) {
+            return res.status(400).json({ message: 'Access code is required' });
         }
 
-        const files = await File.find({
-            $or: [
-                { userId: req.params.userId },
-                { 'savedBy.userId': req.params.userId }
-            ]
-        })
-        .select('filename fileId size uploadDate contentType userId savedBy')
-        .lean();
-
-        res.json(files || []);
-    } catch (error) {
-        console.error('Error fetching files:', error);
-        res.status(500).json({ message: 'Error fetching files' });
-    }
-});
-
-app.post('/api/save/:fileId', async (req, res) => {
-    try {
-        if (!req.body.userId) {
-            return res.status(400).json({ message: 'User ID is required' });
-        }
-
-        const file = await File.findOne({ fileId: new mongoose.Types.ObjectId(req.params.fileId) });
-        if (!file) {
-            return res.status(404).json({ message: 'File not found' });
-        }
-
-        // Check if user has already saved this file
-        const alreadySaved = file.savedBy.some(save => save.userId === req.body.userId);
-        if (alreadySaved) {
-            return res.status(400).json({ message: 'File already saved' });
-        }
-
-        // Add user to savedBy array
-        file.savedBy.push({
-            userId: req.body.userId,
-            savedAt: new Date()
+        const hashedAccessCode = hashAccessCode(accessCode);
+        const file = await File.findOne({ 
+            fileId: req.params.fileId,
+            accessCode: hashedAccessCode 
         });
 
-        await file.save();
-        res.json({ message: 'File saved successfully' });
-    } catch (error) {
-        console.error('Save error:', error);
-        res.status(500).json({ message: 'Error saving file' });
-    }
-});
-
-app.get('/api/download/:fileId', async (req, res) => {
-    try {
-        const file = await File.findOne({ fileId: new mongoose.Types.ObjectId(req.params.fileId) });
         if (!file) {
-            return res.status(404).json({ message: 'File not found' });
+            return res.status(404).json({ message: 'File not found or access denied' });
         }
 
-        const gfs = getGfs();
-        if (!gfs) {
-            return res.status(500).json({ message: 'File system not initialized' });
-        }
+        const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+            bucketName: 'uploads'
+        });
 
-        const downloadStream = gfs.openDownloadStream(new mongoose.Types.ObjectId(file.fileId));
+        const downloadStream = bucket.openDownloadStream(file.fileId);
         res.set('Content-Type', file.contentType);
         res.set('Content-Disposition', `attachment; filename="${file.filename}"`);
         downloadStream.pipe(res);
@@ -249,24 +209,28 @@ app.get('/api/download/:fileId', async (req, res) => {
     }
 });
 
-app.delete('/api/delete/:fileId', async (req, res) => {
+app.delete('/api/files/:fileId', async (req, res) => {
     try {
-        const file = await File.findOne({ fileId: new mongoose.Types.ObjectId(req.params.fileId) });
+        const accessCode = req.body.accessCode;
+        if (!accessCode) {
+            return res.status(400).json({ message: 'Access code is required' });
+        }
+
+        const hashedAccessCode = hashAccessCode(accessCode);
+        const file = await File.findOne({ 
+            fileId: req.params.fileId,
+            accessCode: hashedAccessCode 
+        });
+
         if (!file) {
-            return res.status(404).json({ message: 'File not found' });
+            return res.status(404).json({ message: 'File not found or access denied' });
         }
 
-        // Only allow file owner to delete
-        if (file.userId !== req.body.userId) {
-            return res.status(403).json({ message: 'Not authorized to delete this file' });
-        }
+        const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+            bucketName: 'uploads'
+        });
 
-        const gfs = getGfs();
-        if (!gfs) {
-            return res.status(500).json({ message: 'File system not initialized' });
-        }
-
-        await gfs.delete(new mongoose.Types.ObjectId(file.fileId));
+        await bucket.delete(file.fileId);
         await File.deleteOne({ _id: file._id });
         res.json({ message: 'File deleted successfully' });
     } catch (error) {
@@ -275,10 +239,26 @@ app.delete('/api/delete/:fileId', async (req, res) => {
     }
 });
 
-// Make sure error handler is registered after all routes
-app.use(errorHandler);
+app.get('/api/files/access/:code', async (req, res) => {
+    try {
+        const hashedAccessCode = hashAccessCode(req.params.code);
+        const files = await File.find({ accessCode: hashedAccessCode });
+        res.json(files);
+    } catch (error) {
+        console.error('Error getting files:', error);
+        res.status(500).json({ message: 'Error getting files' });
+    }
+});
 
-// Start server
+// Serve static files
+app.use(express.static(path.join(__dirname, '.')));
+
+// Handle all other routes by serving index.html
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Start the server
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 }); 
