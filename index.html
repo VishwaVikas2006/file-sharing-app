@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Sharing App</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div id="homePage" class="page">
+      <div class="container">
+        <h1>File Sharing App</h1>
+        <p>Enter a user ID to manage your files</p>
+        <div class="input-group">
+          <input type="text" id="userIdInput" placeholder="Enter user ID" maxlength="20">
+          <button id="loginButton">Login</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="filePage" class="page hidden">
+      <div class="container">
+        <div class="header">
+          <h2>Your Files</h2>
+          <div id="userId"></div>
+        </div>
+        
+        <div class="file-upload-section">
+          <h3>Upload New File</h3>
+          <div class="upload-container">
+            <input type="file" id="fileInput" accept="image/*,application/pdf" multiple>
+            <button id="uploadButton">Upload Files</button>
+          </div>
+        </div>
+
+        <div id="fileList" class="file-list">
+          <!-- Files will be listed here -->
+        </div>
+        
+        <div class="button-group">
+          <button onclick="logout()">Logout</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="messageContainer"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
