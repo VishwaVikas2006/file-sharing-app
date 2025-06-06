@@ -168,6 +168,12 @@ async function handleFiles(files) {
     const uploadPromises = [];
     const errors = [];
 
+    // Show initial upload status
+    showMessage('Starting file upload...', 'info');
+    
+    // Add loading class to dropzone
+    dropZone.classList.add('uploading');
+
     for (const file of files) {
         try {
             isValidFile(file);
@@ -184,14 +190,16 @@ async function handleFiles(files) {
     if (uploadPromises.length > 0) {
         try {
             await Promise.all(uploadPromises);
-            showMessage('All valid files uploaded successfully', 'success');
+            showMessage(`Successfully uploaded ${uploadPromises.length} file(s)`, 'success');
             loadFiles();
         } catch (error) {
-            showMessage('Error uploading some files', 'error');
+            showMessage('Error uploading files: ' + error.message, 'error');
             console.error('Upload error:', error);
         }
     }
     
+    // Remove loading class from dropzone
+    dropZone.classList.remove('uploading');
     fileInput.value = '';
 }
 
@@ -205,6 +213,8 @@ async function uploadFile(file) {
     formData.append('userId', currentUserId);
 
     try {
+        showMessage(`Uploading ${file.name}...`, 'info');
+        
         const response = await fetch(ENDPOINTS.UPLOAD, {
             method: 'POST',
             body: formData
@@ -307,10 +317,22 @@ function formatFileSize(bytes) {
 
 function showMessage(message, type) {
     messageContainer.textContent = message;
-    messageContainer.className = type;
+    messageContainer.className = `message ${type}`;
     messageContainer.style.opacity = '1';
     
-    setTimeout(() => {
-        messageContainer.style.opacity = '0';
-    }, 3000);
+    // Only auto-hide success and info messages
+    if (type === 'success' || type === 'info') {
+        setTimeout(() => {
+            messageContainer.style.opacity = '0';
+        }, 3000);
+    } else {
+        // For errors, add a close button
+        const closeButton = document.createElement('button');
+        closeButton.textContent = '×';
+        closeButton.className = 'close-message';
+        closeButton.onclick = () => {
+            messageContainer.style.opacity = '0';
+        };
+        messageContainer.appendChild(closeButton);
+    }
 } 
