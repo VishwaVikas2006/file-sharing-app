@@ -10,10 +10,10 @@ services:
       - key: NODE_ENV
         value: production
       - key: MONGODB_URI
-        value: "mongodb+srv://Vishwa:Vishwa@cluster0.l82ddp2.mongodb.net/?retryWrites=true&w=majority"
+        sync: false
       - key: PORT
-        value: "10000"
-    healthCheckPath: /api/test
+        value: "3000"
+    healthCheckPath: /
     healthCheckTimeout: 100
     autoDeploy: true
     numInstances: 1 

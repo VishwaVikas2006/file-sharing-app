@@ -1,224 +1,232 @@
-let currentUserId = null;
-const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://your-backend-url.com';
+// DOM Elements
+const homePage = document.getElementById('homePage');
+const filePage = document.getElementById('filePage');
+const userIdInput = document.getElementById('userIdInput');
+const loginButton = document.getElementById('loginButton');
+const userIdDisplay = document.getElementById('userId');
+const fileInput = document.getElementById('fileInput');
+const dropZone = document.getElementById('dropZone');
+const fileList = document.getElementById('fileList');
+const messageContainer = document.getElementById('messageContainer');
 
-// Show message function
-function showMessage(message, isError = false) {
-    const messageContainer = document.getElementById('messageContainer');
-    messageContainer.textContent = message;
-    messageContainer.className = isError ? 'error' : 'success';
-    messageContainer.style.display = 'block';
-    setTimeout(() => {
-        messageContainer.style.display = 'none';
-    }, 3000);
-}
+// API Endpoints
+const API_BASE_URL = window.location.origin;
+const ENDPOINTS = {
+    UPLOAD: `${API_BASE_URL}/api/upload`,
+    FILES: `${API_BASE_URL}/api/files`,
+    DOWNLOAD: `${API_BASE_URL}/api/download`,
+    DELETE: `${API_BASE_URL}/api/delete`
+};
 
-// Login function
-document.getElementById('loginButton').addEventListener('click', () => {
-    const userId = document.getElementById('userIdInput').value.trim();
-    if (userId) {
-        currentUserId = userId;
-        document.getElementById('userId').textContent = `User ID: ${userId}`;
-        document.getElementById('homePage').classList.add('hidden');
-        document.getElementById('filePage').classList.remove('hidden');
-        loadFiles();
-    } else {
-        showMessage('Please enter a user ID', true);
+// Current user state
+let currentUserId = '';
+
+// Event Listeners
+document.addEventListener('DOMContentLoaded', () => {
+    // Check for stored user ID
+    const storedUserId = localStorage.getItem('userId');
+    if (storedUserId) {
+        loginUser(storedUserId);
     }
+
+    // Setup event listeners
+    loginButton.addEventListener('click', handleLogin);
+    userIdInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleLogin();
+    });
+    
+    // File upload listeners
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', handleFileSelect);
+    dropZone.addEventListener('dragover', handleDragOver);
+    dropZone.addEventListener('drop', handleDrop);
 });
 
-// Logout function
-function logout() {
-    currentUserId = null;
-    document.getElementById('homePage').classList.remove('hidden');
-    document.getElementById('filePage').classList.add('hidden');
-    document.getElementById('userIdInput').value = '';
-    document.getElementById('fileList').innerHTML = '';
+// Login handling
+async function handleLogin() {
+    const userId = userIdInput.value.trim();
+    if (userId) {
+        loginUser(userId);
+    } else {
+        showMessage('Please enter a user ID', 'error');
+    }
 }
 
-// Load files function
+function loginUser(userId) {
+    currentUserId = userId;
+    localStorage.setItem('userId', userId);
+    userIdDisplay.textContent = `User ID: ${userId}`;
+    homePage.classList.add('hidden');
+    filePage.classList.remove('hidden');
+    loadFiles();
+}
+
+function logout() {
+    currentUserId = '';
+    localStorage.removeItem('userId');
+    homePage.classList.remove('hidden');
+    filePage.classList.add('hidden');
+    userIdInput.value = '';
+    fileList.innerHTML = '';
+}
+
+// File handling
 async function loadFiles() {
     try {
-        const response = await fetch(`${API_URL}/api/files/user/${currentUserId}`);
+        const response = await fetch(`${ENDPOINTS.FILES}/${currentUserId}`);
         if (!response.ok) throw new Error('Failed to load files');
+        
         const files = await response.json();
         displayFiles(files);
     } catch (error) {
-        console.error('Error loading files:', error);
-        showMessage('Error loading files', true);
+        showMessage('Error loading files', 'error');
+        console.error('Error:', error);
     }
 }
 
-// Display files function
 function displayFiles(files) {
-    const fileList = document.getElementById('fileList');
-    const emptyState = fileList.querySelector('.empty-state') || createEmptyState();
-
-    if (files.length === 0) {
-        fileList.innerHTML = '';
-        emptyState.classList.remove('hidden');
-        fileList.appendChild(emptyState);
+    if (!files.length) {
+        fileList.innerHTML = `
+            <div class="empty-state">
+                <span class="icon">📂</span>
+                <p>No files uploaded yet</p>
+            </div>
+        `;
         return;
     }
 
-    emptyState.classList.add('hidden');
-    fileList.innerHTML = '';
-    files.forEach(file => {
-        const fileElement = document.createElement('div');
-        fileElement.className = 'file-item';
-        fileElement.innerHTML = `
+    fileList.innerHTML = files.map(file => `
+        <div class="file-item">
             <div class="file-info">
                 <span class="filename">${file.filename}</span>
                 <span class="file-size">${formatFileSize(file.size)}</span>
             </div>
             <div class="file-actions">
-                <button onclick="downloadFile('${file.fileId}', '${file.filename}')">Download</button>
-                <button onclick="deleteFile('${file.fileId}')" class="delete">Delete</button>
+                <button onclick="downloadFile('${file._id}')" class="secondary-button">Download</button>
+                <button onclick="deleteFile('${file._id}')" class="secondary-button delete">Delete</button>
             </div>
-        `;
-        fileList.appendChild(fileElement);
-    });
+        </div>
+    `).join('');
 }
 
-// Create empty state element
-function createEmptyState() {
-    const emptyState = document.createElement('div');
-    emptyState.className = 'empty-state';
-    emptyState.innerHTML = `
-        <span class="icon">📂</span>
-        <p>No files uploaded yet</p>
-    `;
-    return emptyState;
+// File upload handling
+function handleDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.style.borderColor = 'var(--primary-color)';
 }
 
-// Format file size
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// Setup drag and drop
-function setupDragAndDrop() {
-    const dropZone = document.getElementById('dropZone');
-    
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, preventDefaults, false);
-    });
-
-    function preventDefaults(e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, highlight, false);
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, unhighlight, false);
-    });
-
-    function highlight(e) {
-        dropZone.classList.add('highlight');
-    }
-
-    function unhighlight(e) {
-        dropZone.classList.remove('highlight');
-    }
-
-    dropZone.addEventListener('drop', handleDrop, false);
-}
-
-// Handle file drop
 function handleDrop(e) {
-    const dt = e.dataTransfer;
-    const files = dt.files;
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.style.borderColor = 'var(--border-color)';
+    
+    const files = e.dataTransfer.files;
     handleFiles(files);
 }
 
-// Handle files
-function handleFiles(files) {
-    if (files.length === 0) {
-        showMessage('Please select files to upload', true);
-        return;
-    }
-
-    [...files].forEach(uploadFile);
+function handleFileSelect(e) {
+    const files = e.target.files;
+    handleFiles(files);
 }
 
-// Upload file function
-async function uploadFile(file) {
-    if (file.size > 10 * 1024 * 1024) { // 10MB limit
-        showMessage(`File ${file.name} is too large. Maximum size is 10MB`, true);
-        return;
-    }
+async function handleFiles(files) {
+    for (const file of files) {
+        if (!isValidFile(file)) {
+            showMessage(`Invalid file type or size: ${file.name}`, 'error');
+            continue;
+        }
 
+        try {
+            await uploadFile(file);
+            showMessage(`${file.name} uploaded successfully`, 'success');
+        } catch (error) {
+            showMessage(`Failed to upload ${file.name}`, 'error');
+            console.error('Upload error:', error);
+        }
+    }
+    
+    loadFiles();
+    fileInput.value = '';
+}
+
+function isValidFile(file) {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
+    
+    return file.size <= maxSize && allowedTypes.includes(file.type);
+}
+
+async function uploadFile(file) {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('userId', currentUserId);
 
-    try {
-        const response = await fetch(`${API_URL}/api/files/upload`, {
-            method: 'POST',
-            body: formData
-        });
+    const response = await fetch(ENDPOINTS.UPLOAD, {
+        method: 'POST',
+        body: formData
+    });
 
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-        showMessage(`${file.name} uploaded successfully`);
-        loadFiles(); // Refresh the file list
-    } catch (error) {
-        console.error('Upload error:', error);
-        showMessage(`Error uploading ${file.name}`, true);
-    }
+    if (!response.ok) throw new Error('Upload failed');
+    return response.json();
 }
 
-// Download file function
-async function downloadFile(fileId, filename) {
+// File actions
+async function downloadFile(fileId) {
     try {
-        const response = await fetch(`${API_URL}/api/files/${fileId}`);
+        const response = await fetch(`${ENDPOINTS.DOWNLOAD}/${fileId}`);
         if (!response.ok) throw new Error('Download failed');
 
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = filename;
+        a.download = response.headers.get('Content-Disposition').split('filename=')[1];
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
     } catch (error) {
+        showMessage('Failed to download file', 'error');
         console.error('Download error:', error);
-        showMessage('Error downloading file', true);
     }
 }
 
-// Delete file function
 async function deleteFile(fileId) {
     if (!confirm('Are you sure you want to delete this file?')) return;
 
     try {
-        const response = await fetch(`${API_URL}/api/files/${fileId}`, {
+        const response = await fetch(`${ENDPOINTS.DELETE}/${fileId}`, {
             method: 'DELETE'
         });
-
+        
         if (!response.ok) throw new Error('Delete failed');
-
-        showMessage('File deleted successfully');
-        loadFiles(); // Refresh the file list
+        
+        showMessage('File deleted successfully', 'success');
+        loadFiles();
     } catch (error) {
+        showMessage('Failed to delete file', 'error');
         console.error('Delete error:', error);
-        showMessage('Error deleting file', true);
     }
 }
 
-// Initialize drag and drop
-setupDragAndDrop();
+// Utility functions
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
 
-// Setup file input change handler
-document.getElementById('fileInput').addEventListener('change', (e) => {
-    handleFiles(e.target.files);
-}); 
+function showMessage(message, type) {
+    messageContainer.textContent = message;
+    messageContainer.className = type;
+    messageContainer.style.opacity = '1';
+    
+    setTimeout(() => {
+        messageContainer.style.opacity = '0';
+    }, 3000);
+} 
