@@ -79,13 +79,13 @@ async function loadFiles() {
         }
 
         const response = await fetch(`${ENDPOINTS.FILES}/${currentUserId}`);
+        const data = await response.json();
+        
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || 'Failed to load files');
+            throw new Error(data.message || 'Failed to load files');
         }
         
-        const files = await response.json();
-        displayFiles(files);
+        displayFiles(data);
     } catch (error) {
         showMessage('Error loading files: ' + error.message, 'error');
         console.error('Error:', error);

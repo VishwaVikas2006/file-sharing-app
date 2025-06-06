@@ -116,8 +116,15 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
 app.get('/api/files/user/:userId', async (req, res) => {
     try {
-        const files = await File.find({ userId: req.params.userId });
-        res.json(files);
+        if (!req.params.userId) {
+            return res.status(400).json({ message: 'User ID is required' });
+        }
+
+        const files = await File.find({ userId: req.params.userId })
+            .select('filename fileId size uploadDate contentType')
+            .lean();
+
+        res.json(files || []);
     } catch (error) {
         console.error('Error fetching files:', error);
         res.status(500).json({ message: 'Error fetching files' });
