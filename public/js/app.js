@@ -1,9 +1,9 @@
 // DOM Elements
 const homePage = document.getElementById('homePage');
 const filePage = document.getElementById('filePage');
-const userIdInput = document.getElementById('userIdInput');
+const accessCodeInput = document.getElementById('userIdInput');
 const loginButton = document.getElementById('loginButton');
-const userIdDisplay = document.getElementById('userId');
+const accessCodeDisplay = document.getElementById('userId');
 const fileInput = document.getElementById('fileInput');
 const dropZone = document.getElementById('dropZone');
 const fileList = document.getElementById('fileList');
@@ -13,26 +13,26 @@ const messageContainer = document.getElementById('messageContainer');
 const API_BASE_URL = window.location.origin;
 const ENDPOINTS = {
     UPLOAD: `${API_BASE_URL}/api/files/upload`,
-    FILES: `${API_BASE_URL}/api/files/user`,
+    FILES: `${API_BASE_URL}/api/files/access`,
     DOWNLOAD: `${API_BASE_URL}/api/files`,
     DELETE: `${API_BASE_URL}/api/files`,
     SAVE: `${API_BASE_URL}/api/files/save`
 };
 
-// Current user state
-let currentUserId = '';
+// Current access code state
+let currentAccessCode = '';
 
 // Event Listeners
 document.addEventListener('DOMContentLoaded', () => {
-    // Check for stored user ID
-    const storedUserId = localStorage.getItem('userId');
-    if (storedUserId) {
-        loginUser(storedUserId);
+    // Check for stored access code
+    const storedAccessCode = localStorage.getItem('accessCode');
+    if (storedAccessCode) {
+        loginWithCode(storedAccessCode);
     }
 
     // Setup event listeners
     loginButton.addEventListener('click', handleLogin);
-    userIdInput.addEventListener('keypress', (e) => {
+    accessCodeInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleLogin();
     });
     
@@ -45,41 +45,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Login handling
 async function handleLogin() {
-    const userId = userIdInput.value.trim();
-    if (userId) {
-        loginUser(userId);
+    const accessCode = accessCodeInput.value.trim();
+    if (accessCode) {
+        loginWithCode(accessCode);
     } else {
-        showMessage('Please enter a user ID', 'error');
+        showMessage('Please enter an access code', 'error');
     }
 }
 
-function loginUser(userId) {
-    currentUserId = userId;
-    localStorage.setItem('userId', userId);
-    userIdDisplay.textContent = `User ID: ${userId}`;
+function loginWithCode(accessCode) {
+    currentAccessCode = accessCode;
+    localStorage.setItem('accessCode', accessCode);
+    accessCodeDisplay.textContent = `Access Code: ${accessCode}`;
     homePage.classList.add('hidden');
     filePage.classList.remove('hidden');
     loadFiles();
 }
 
 function logout() {
-    currentUserId = '';
-    localStorage.removeItem('userId');
+    currentAccessCode = '';
+    localStorage.removeItem('accessCode');
     homePage.classList.remove('hidden');
     filePage.classList.add('hidden');
-    userIdInput.value = '';
+    accessCodeInput.value = '';
     fileList.innerHTML = '';
 }
 
 // File handling
 async function loadFiles() {
     try {
-        if (!currentUserId) {
-            showMessage('Please log in first', 'error');
+        if (!currentAccessCode) {
+            showMessage('Please enter an access code first', 'error');
             return;
         }
 
-        const response = await fetch(`${ENDPOINTS.FILES}/${currentUserId}`);
+        const response = await fetch(`${ENDPOINTS.FILES}/${currentAccessCode}`);
         const data = await response.json();
         
         if (!response.ok) {
@@ -111,8 +111,6 @@ function displayFiles(files) {
                 <span class="file-size">${formatFileSize(file.size)}</span>
             </div>
             <div class="file-actions">
-                ${file.contentType === 'application/pdf' ? 
-                    `<button onclick="saveFile('${file.fileId}')" class="secondary-button">Save</button>` : ''}
                 <button onclick="downloadFile('${file.fileId}')" class="secondary-button">Download</button>
                 <button onclick="deleteFile('${file.fileId}')" class="secondary-button delete">Delete</button>
             </div>
@@ -204,13 +202,13 @@ async function handleFiles(files) {
 }
 
 async function uploadFile(file) {
-    if (!currentUserId) {
-        throw new Error('Please log in first');
+    if (!currentAccessCode) {
+        throw new Error('Please enter an access code first');
     }
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('userId', currentUserId);
+    formData.append('accessCode', currentAccessCode);
 
     try {
         showMessage(`Uploading ${file.name}...`, 'info');
@@ -242,7 +240,7 @@ async function saveFile(fileId) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ userId: currentUserId })
+            body: JSON.stringify({ accessCode: currentAccessCode })
         });
 
         if (!response.ok) {
@@ -259,7 +257,8 @@ async function saveFile(fileId) {
 
 async function downloadFile(fileId) {
     try {
-        const response = await fetch(`${ENDPOINTS.DOWNLOAD}/${fileId}`);
+        const response = await fetch(`${ENDPOINTS.DOWNLOAD}/${fileId}?accessCode=${currentAccessCode}`);
+        
         if (!response.ok) {
             const data = await response.json();
             throw new Error(data.message || 'Download failed');
@@ -289,7 +288,7 @@ async function deleteFile(fileId) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ userId: currentUserId })
+            body: JSON.stringify({ accessCode: currentAccessCode })
         });
         
         if (!response.ok) {
@@ -321,13 +320,11 @@ function showMessage(message, type) {
     messageContainer.className = `message ${type}`;
     messageContainer.style.opacity = '1';
     
-    // Only auto-hide success and info messages
     if (type === 'success' || type === 'info') {
         setTimeout(() => {
             messageContainer.style.opacity = '0';
         }, 3000);
     } else {
-        // For errors, add a close button
         const closeButton = document.createElement('button');
         closeButton.textContent = '×';
         closeButton.className = 'close-message';

@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const multer = require('multer');
 const { GridFsStorage } = require('multer-gridfs-storage');
 const path = require('path');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -20,6 +21,11 @@ mongoose.connect(MONGODB_URI)
   .then(() => console.log('MongoDB Connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
+// Helper function to hash access code
+function hashAccessCode(code) {
+  return crypto.createHash('sha256').update(code).digest('hex');
+}
+
 // GridFS Storage setup
 const storage = new GridFsStorage({
   url: MONGODB_URI,
@@ -28,8 +34,9 @@ const storage = new GridFsStorage({
       bucketName: 'uploads',
       filename: `${Date.now()}-${file.originalname}`,
       metadata: {
-        userId: req.body.userId || 'anonymous',
+        accessCode: hashAccessCode(req.body.accessCode),
         contentType: file.mimetype,
+        originalName: file.originalname
       }
     };
   }
@@ -44,7 +51,7 @@ const fileSchema = new mongoose.Schema({
   size: Number,
   uploadDate: { type: Date, default: Date.now },
   fileId: mongoose.Schema.Types.ObjectId,
-  userId: String,
+  accessCode: String, // Hashed access code
   metadata: Object
 });
 
@@ -57,14 +64,20 @@ app.post('/api/files/upload', upload.single('file'), async (req, res) => {
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
+    if (!req.body.accessCode) {
+      return res.status(400).json({ message: 'Access code is required' });
+    }
+
+    const hashedAccessCode = hashAccessCode(req.body.accessCode);
+
     const newFile = new File({
       filename: req.file.originalname,
       contentType: req.file.mimetype,
       size: req.file.size,
       fileId: req.file.id,
-      userId: req.body.userId || 'anonymous',
+      accessCode: hashedAccessCode,
       metadata: {
-        userId: req.body.userId || 'anonymous',
+        accessCode: hashedAccessCode,
         contentType: req.file.mimetype,
         originalName: req.file.originalname
       }
@@ -77,8 +90,7 @@ app.post('/api/files/upload', upload.single('file'), async (req, res) => {
         filename: newFile.filename,
         contentType: newFile.contentType,
         size: newFile.size,
-        fileId: newFile.fileId,
-        userId: newFile.userId
+        fileId: newFile.fileId
       }
     });
   } catch (error) {
@@ -89,9 +101,19 @@ app.post('/api/files/upload', upload.single('file'), async (req, res) => {
 
 app.get('/api/files/:fileId', async (req, res) => {
   try {
-    const file = await File.findOne({ fileId: req.params.fileId });
+    const accessCode = req.query.accessCode;
+    if (!accessCode) {
+      return res.status(400).json({ message: 'Access code is required' });
+    }
+
+    const hashedAccessCode = hashAccessCode(accessCode);
+    const file = await File.findOne({ 
+      fileId: req.params.fileId,
+      accessCode: hashedAccessCode 
+    });
+
     if (!file) {
-      return res.status(404).json({ message: 'File not found' });
+      return res.status(404).json({ message: 'File not found or access denied' });
     }
 
     const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
@@ -100,6 +122,7 @@ app.get('/api/files/:fileId', async (req, res) => {
 
     const downloadStream = bucket.openDownloadStream(file.fileId);
     res.set('Content-Type', file.contentType);
+    res.set('Content-Disposition', `attachment; filename="${file.filename}"`);
     downloadStream.pipe(res);
   } catch (error) {
     console.error('Download error:', error);
@@ -109,9 +132,19 @@ app.get('/api/files/:fileId', async (req, res) => {
 
 app.delete('/api/files/:fileId', async (req, res) => {
   try {
-    const file = await File.findOne({ fileId: req.params.fileId });
+    const accessCode = req.body.accessCode;
+    if (!accessCode) {
+      return res.status(400).json({ message: 'Access code is required' });
+    }
+
+    const hashedAccessCode = hashAccessCode(accessCode);
+    const file = await File.findOne({ 
+      fileId: req.params.fileId,
+      accessCode: hashedAccessCode 
+    });
+
     if (!file) {
-      return res.status(404).json({ message: 'File not found' });
+      return res.status(404).json({ message: 'File not found or access denied' });
     }
 
     const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
@@ -127,9 +160,10 @@ app.delete('/api/files/:fileId', async (req, res) => {
   }
 });
 
-app.get('/api/files/user/:userId', async (req, res) => {
+app.get('/api/files/access/:code', async (req, res) => {
   try {
-    const files = await File.find({ userId: req.params.userId });
+    const hashedAccessCode = hashAccessCode(req.params.code);
+    const files = await File.find({ accessCode: hashedAccessCode });
     res.json(files);
   } catch (error) {
     console.error('Error getting files:', error);
