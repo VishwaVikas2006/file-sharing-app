@@ -13,7 +13,7 @@ const messageContainer = document.getElementById('messageContainer');
 const API_BASE_URL = window.location.origin;
 const ENDPOINTS = {
     UPLOAD: `${API_BASE_URL}/api/upload`,
-    FILES: `${API_BASE_URL}/api/files`,
+    FILES: `${API_BASE_URL}/api/files/user`,
     DOWNLOAD: `${API_BASE_URL}/api/download`,
     DELETE: `${API_BASE_URL}/api/delete`
 };
@@ -73,13 +73,21 @@ function logout() {
 // File handling
 async function loadFiles() {
     try {
+        if (!currentUserId) {
+            showMessage('Please log in first', 'error');
+            return;
+        }
+
         const response = await fetch(`${ENDPOINTS.FILES}/${currentUserId}`);
-        if (!response.ok) throw new Error('Failed to load files');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to load files');
+        }
         
         const files = await response.json();
         displayFiles(files);
     } catch (error) {
-        showMessage('Error loading files', 'error');
+        showMessage('Error loading files: ' + error.message, 'error');
         console.error('Error:', error);
     }
 }
@@ -163,6 +171,10 @@ async function uploadFile(file) {
     formData.append('userId', currentUserId);
 
     try {
+        if (!currentUserId) {
+            throw new Error('Please log in first');
+        }
+
         const response = await fetch(ENDPOINTS.UPLOAD, {
             method: 'POST',
             body: formData

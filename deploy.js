@@ -4,15 +4,16 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const multer = require('multer');
 const { GridFsStorage } = require('multer-gridfs-storage');
+const { connectDB, getGfs } = require('./config/db');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MONGODB_URI = process.env.MONGODB_URI;
 
-if (!MONGODB_URI) {
-    throw new Error('MONGODB_URI is not defined in environment variables');
-}
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
 
 // Cache control middleware
 const nocache = (req, res, next) => {
@@ -22,43 +23,19 @@ const nocache = (req, res, next) => {
     next();
 };
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+app.use(nocache);
 
-// Serve static files with cache control
-app.use(express.static('public', {
-    etag: false,
-    lastModified: false,
-    setHeaders: (res, path) => {
-        if (path.endsWith('.html')) {
-            res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-        } else {
-            res.set('Cache-Control', 'no-cache');
-        }
-    }
-}));
-
-// MongoDB Connection
-mongoose.connect(MONGODB_URI)
-    .then(() => {
-        console.log('Connected to MongoDB Atlas');
-    })
-    .catch((error) => {
-        console.error('MongoDB connection error:', error);
-        process.exit(1);
-    });
-
-let gfs;
-mongoose.connection.once('open', () => {
-    gfs = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
-        bucketName: 'uploads'
-    });
+// Connect to MongoDB
+connectDB().then(() => {
+    console.log('Database connected successfully');
+}).catch(err => {
+    console.error('Failed to connect to database:', err);
+    process.exit(1);
 });
 
 // GridFS Storage setup
 const storage = new GridFsStorage({
-    url: MONGODB_URI,
+    url: process.env.MONGODB_URI,
     file: (req, file) => {
         return {
             bucketName: 'uploads',
@@ -124,12 +101,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         });
 
         await newFile.save();
-        console.log('File saved successfully:', {
-            filename: newFile.filename,
-            userId: newFile.userId,
-            fileId: newFile.fileId
-        });
-
         res.status(201).json({ 
             message: 'File uploaded successfully', 
             file: newFile 
@@ -143,7 +114,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     }
 });
 
-app.get('/api/files/:userId', async (req, res) => {
+app.get('/api/files/user/:userId', async (req, res) => {
     try {
         const files = await File.find({ userId: req.params.userId });
         res.json(files);
@@ -160,7 +131,12 @@ app.get('/api/download/:fileId', async (req, res) => {
             return res.status(404).json({ message: 'File not found' });
         }
 
-        const downloadStream = gfs.openDownloadStream(new mongoose.Types.ObjectId(req.params.fileId));
+        const gfs = getGfs();
+        if (!gfs) {
+            return res.status(500).json({ message: 'File system not initialized' });
+        }
+
+        const downloadStream = gfs.openDownloadStream(new mongoose.Types.ObjectId(file.fileId));
         res.set('Content-Type', file.contentType);
         res.set('Content-Disposition', `attachment; filename="${file.filename}"`);
         downloadStream.pipe(res);
@@ -177,32 +153,18 @@ app.delete('/api/delete/:fileId', async (req, res) => {
             return res.status(404).json({ message: 'File not found' });
         }
 
-        await gfs.delete(new mongoose.Types.ObjectId(req.params.fileId));
+        const gfs = getGfs();
+        if (!gfs) {
+            return res.status(500).json({ message: 'File system not initialized' });
+        }
+
+        await gfs.delete(new mongoose.Types.ObjectId(file.fileId));
         await File.deleteOne({ _id: file._id });
         res.json({ message: 'File deleted successfully' });
     } catch (error) {
         console.error('Delete error:', error);
         res.status(500).json({ message: 'Error deleting file' });
     }
-});
-
-// Serve static files with no cache
-app.get('*', nocache, (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-    console.error(err.stack);
-    if (err instanceof multer.MulterError) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({ message: 'File is too large. Maximum size is 10MB' });
-        }
-        return res.status(400).json({ message: err.message });
-    } else if (err.message === 'Only images and PDF files are allowed!') {
-        return res.status(400).json({ message: err.message });
-    }
-    res.status(500).json({ message: 'Something went wrong!' });
 });
 
 // Start server
