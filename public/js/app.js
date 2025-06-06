@@ -15,7 +15,8 @@ const ENDPOINTS = {
     UPLOAD: `${API_BASE_URL}/api/upload`,
     FILES: `${API_BASE_URL}/api/files/user`,
     DOWNLOAD: `${API_BASE_URL}/api/download`,
-    DELETE: `${API_BASE_URL}/api/delete`
+    DELETE: `${API_BASE_URL}/api/delete`,
+    SAVE: `${API_BASE_URL}/api/save`
 };
 
 // Current user state
@@ -93,7 +94,7 @@ async function loadFiles() {
 }
 
 function displayFiles(files) {
-    if (!files.length) {
+    if (!files || !files.length) {
         fileList.innerHTML = `
             <div class="empty-state">
                 <span class="icon">📂</span>
@@ -110,6 +111,8 @@ function displayFiles(files) {
                 <span class="file-size">${formatFileSize(file.size)}</span>
             </div>
             <div class="file-actions">
+                ${file.contentType === 'application/pdf' ? 
+                    `<button onclick="saveFile('${file.fileId}')" class="secondary-button">Save</button>` : ''}
                 <button onclick="downloadFile('${file.fileId}')" class="secondary-button">Download</button>
                 <button onclick="deleteFile('${file.fileId}')" class="secondary-button delete">Delete</button>
             </div>
@@ -149,7 +152,7 @@ async function handleFiles(files) {
             await uploadFile(file);
             showMessage(`${file.name} uploaded successfully`, 'success');
         } catch (error) {
-            showMessage(`Failed to upload ${file.name}`, 'error');
+            showMessage(`Failed to upload ${file.name}: ${error.message}`, 'error');
             console.error('Upload error:', error);
         }
     }
@@ -166,28 +169,27 @@ function isValidFile(file) {
 }
 
 async function uploadFile(file) {
+    if (!currentUserId) {
+        throw new Error('Please log in first');
+    }
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('userId', currentUserId);
 
     try {
-        if (!currentUserId) {
-            throw new Error('Please log in first');
-        }
-
         const response = await fetch(ENDPOINTS.UPLOAD, {
             method: 'POST',
             body: formData
         });
 
+        const data = await response.json();
+        
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || 'Upload failed');
+            throw new Error(data.message || 'Upload failed');
         }
 
-        const result = await response.json();
-        console.log('Upload success:', result);
-        return result;
+        return data;
     } catch (error) {
         console.error('Upload error details:', error);
         throw error;
@@ -195,22 +197,47 @@ async function uploadFile(file) {
 }
 
 // File actions
+async function saveFile(fileId) {
+    try {
+        const response = await fetch(`${ENDPOINTS.SAVE}/${fileId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ userId: currentUserId })
+        });
+
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.message || 'Save failed');
+        }
+
+        showMessage('File saved successfully', 'success');
+    } catch (error) {
+        showMessage('Failed to save file: ' + error.message, 'error');
+        console.error('Save error:', error);
+    }
+}
+
 async function downloadFile(fileId) {
     try {
         const response = await fetch(`${ENDPOINTS.DOWNLOAD}/${fileId}`);
-        if (!response.ok) throw new Error('Download failed');
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.message || 'Download failed');
+        }
 
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = response.headers.get('Content-Disposition').split('filename=')[1];
+        a.download = response.headers.get('Content-Disposition').split('filename=')[1].replace(/['"]/g, '');
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
     } catch (error) {
-        showMessage('Failed to download file', 'error');
+        showMessage('Failed to download file: ' + error.message, 'error');
         console.error('Download error:', error);
     }
 }
@@ -220,15 +247,22 @@ async function deleteFile(fileId) {
 
     try {
         const response = await fetch(`${ENDPOINTS.DELETE}/${fileId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ userId: currentUserId })
         });
         
-        if (!response.ok) throw new Error('Delete failed');
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.message || 'Delete failed');
+        }
         
         showMessage('File deleted successfully', 'success');
         loadFiles();
     } catch (error) {
-        showMessage('Failed to delete file', 'error');
+        showMessage('Failed to delete file: ' + error.message, 'error');
         console.error('Delete error:', error);
     }
 }

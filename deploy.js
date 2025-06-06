@@ -43,6 +43,7 @@ const storage = new GridFsStorage({
             metadata: {
                 userId: req.body.userId || 'anonymous',
                 contentType: file.mimetype,
+                originalName: file.originalname
             }
         };
     }
@@ -65,16 +66,56 @@ const upload = multer({
 
 // File Schema
 const fileSchema = new mongoose.Schema({
-    filename: String,
-    contentType: String,
-    size: Number,
-    uploadDate: { type: Date, default: Date.now },
-    fileId: mongoose.Schema.Types.ObjectId,
-    userId: String,
-    metadata: Object
+    filename: {
+        type: String,
+        required: true
+    },
+    contentType: {
+        type: String,
+        required: true
+    },
+    size: {
+        type: Number,
+        required: true
+    },
+    uploadDate: {
+        type: Date,
+        default: Date.now
+    },
+    fileId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true
+    },
+    userId: {
+        type: String,
+        required: true
+    },
+    metadata: {
+        type: Object,
+        default: {}
+    },
+    savedBy: [{
+        userId: String,
+        savedAt: {
+            type: Date,
+            default: Date.now
+        }
+    }]
 });
 
 const File = mongoose.model('File', fileSchema);
+
+// Error handling middleware
+const errorHandler = (err, req, res, next) => {
+    console.error('Error:', err);
+    if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ message: 'File is too large. Maximum size is 10MB' });
+        }
+        return res.status(400).json({ message: err.message });
+    }
+    res.status(500).json({ message: 'Internal server error' });
+};
 
 // API Routes
 app.post('/api/upload', upload.single('file'), async (req, res) => {
@@ -120,14 +161,50 @@ app.get('/api/files/user/:userId', async (req, res) => {
             return res.status(400).json({ message: 'User ID is required' });
         }
 
-        const files = await File.find({ userId: req.params.userId })
-            .select('filename fileId size uploadDate contentType')
-            .lean();
+        const files = await File.find({
+            $or: [
+                { userId: req.params.userId },
+                { 'savedBy.userId': req.params.userId }
+            ]
+        })
+        .select('filename fileId size uploadDate contentType userId savedBy')
+        .lean();
 
         res.json(files || []);
     } catch (error) {
         console.error('Error fetching files:', error);
         res.status(500).json({ message: 'Error fetching files' });
+    }
+});
+
+app.post('/api/save/:fileId', async (req, res) => {
+    try {
+        if (!req.body.userId) {
+            return res.status(400).json({ message: 'User ID is required' });
+        }
+
+        const file = await File.findOne({ fileId: new mongoose.Types.ObjectId(req.params.fileId) });
+        if (!file) {
+            return res.status(404).json({ message: 'File not found' });
+        }
+
+        // Check if user has already saved this file
+        const alreadySaved = file.savedBy.some(save => save.userId === req.body.userId);
+        if (alreadySaved) {
+            return res.status(400).json({ message: 'File already saved' });
+        }
+
+        // Add user to savedBy array
+        file.savedBy.push({
+            userId: req.body.userId,
+            savedAt: new Date()
+        });
+
+        await file.save();
+        res.json({ message: 'File saved successfully' });
+    } catch (error) {
+        console.error('Save error:', error);
+        res.status(500).json({ message: 'Error saving file' });
     }
 });
 
@@ -160,6 +237,11 @@ app.delete('/api/delete/:fileId', async (req, res) => {
             return res.status(404).json({ message: 'File not found' });
         }
 
+        // Only allow file owner to delete
+        if (file.userId !== req.body.userId) {
+            return res.status(403).json({ message: 'Not authorized to delete this file' });
+        }
+
         const gfs = getGfs();
         if (!gfs) {
             return res.status(500).json({ message: 'File system not initialized' });
@@ -173,6 +255,8 @@ app.delete('/api/delete/:fileId', async (req, res) => {
         res.status(500).json({ message: 'Error deleting file' });
     }
 });
+
+app.use(errorHandler);
 
 // Start server
 app.listen(PORT, () => {
