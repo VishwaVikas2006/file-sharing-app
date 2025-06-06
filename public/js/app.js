@@ -226,10 +226,11 @@ async function uploadFile(file) {
             throw new Error(data.message || `Failed to upload ${file.name}`);
         }
 
-        return data;
+        showMessage(`Successfully uploaded ${file.name}`, 'success');
+        return data.file;
     } catch (error) {
         console.error('Upload error details:', error);
-        throw error;
+        throw new Error(`Failed to upload ${file.name}: ${error.message}`);
     }
 }
 

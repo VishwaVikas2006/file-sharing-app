@@ -58,19 +58,32 @@ app.post('/api/files/upload', upload.single('file'), async (req, res) => {
     }
 
     const newFile = new File({
-      filename: req.file.filename,
-      contentType: req.file.contentType,
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
       size: req.file.size,
       fileId: req.file.id,
       userId: req.body.userId || 'anonymous',
-      metadata: req.file.metadata
+      metadata: {
+        userId: req.body.userId || 'anonymous',
+        contentType: req.file.mimetype,
+        originalName: req.file.originalname
+      }
     });
 
     await newFile.save();
-    res.status(201).json({ message: 'File uploaded successfully', file: newFile });
+    res.status(201).json({ 
+      message: 'File uploaded successfully', 
+      file: {
+        filename: newFile.filename,
+        contentType: newFile.contentType,
+        size: newFile.size,
+        fileId: newFile.fileId,
+        userId: newFile.userId
+      }
+    });
   } catch (error) {
     console.error('Upload error:', error);
-    res.status(500).json({ message: 'Error uploading file' });
+    res.status(500).json({ message: 'Error uploading file: ' + error.message });
   }
 });
 
