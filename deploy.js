@@ -7,18 +7,35 @@ const { GridFsStorage } = require('multer-gridfs-storage');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://Vishwa:Vishwa@cluster0.l82ddp2.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+const PORT = process.env.PORT || 10000;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://Vishwa:Vishwa@cluster0.l82ddp2.mongodb.net/?retryWrites=true&w=majority';
+
+// Basic request logging
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    next();
+});
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+    res.json({ message: 'Server is running!' });
+});
+
+// Serve static files from the public directory
+app.use(express.static('public'));
 
 // MongoDB Connection
 mongoose.connect(MONGODB_URI)
-    .then(() => console.log('MongoDB Connected'))
-    .catch(err => console.error('MongoDB connection error:', err));
+    .then(() => {
+        console.log('MongoDB Connected Successfully');
+    })
+    .catch(err => {
+        console.error('MongoDB connection error:', err);
+    });
 
 // GridFS Storage setup
 const storage = new GridFsStorage({
@@ -35,7 +52,12 @@ const storage = new GridFsStorage({
     }
 });
 
-const upload = multer({ storage });
+const upload = multer({ 
+    storage,
+    limits: {
+        fileSize: 10 * 1024 * 1024 // 10MB limit
+    }
+});
 
 // File Schema
 const fileSchema = new mongoose.Schema({
@@ -50,7 +72,7 @@ const fileSchema = new mongoose.Schema({
 
 const File = mongoose.model('File', fileSchema);
 
-// Routes
+// API Routes
 app.post('/api/files/upload', upload.single('file'), async (req, res) => {
     try {
         if (!req.file) {
@@ -124,12 +146,23 @@ app.get('/api/files/user/:userId', async (req, res) => {
     }
 });
 
-// Handle all other routes by serving index.html
+// Serve index.html for all other routes
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Global error handler:', err);
+    res.status(500).json({ 
+        message: 'Something went wrong!',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+});
+
 // Start the server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV}`);
+    console.log(`MongoDB URI: ${MONGODB_URI.substring(0, 20)}...`);
 }); 

@@ -67,3 +67,10 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Exclude unnecessary files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.DS_Store
