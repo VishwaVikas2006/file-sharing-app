@@ -33,19 +33,40 @@ connectDB().then(() => {
     process.exit(1);
 });
 
+// Update allowed file types
+const ALLOWED_FILE_TYPES = [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'text/plain'
+];
+
 // GridFS Storage setup
 const storage = new GridFsStorage({
     url: process.env.MONGODB_URI,
     file: (req, file) => {
-        return {
-            bucketName: 'uploads',
-            filename: `${Date.now()}-${file.originalname}`,
-            metadata: {
-                userId: req.body.userId || 'anonymous',
-                contentType: file.mimetype,
-                originalName: file.originalname
+        return new Promise((resolve, reject) => {
+            if (!ALLOWED_FILE_TYPES.includes(file.mimetype)) {
+                reject(new Error('Invalid file type. Only images, PDFs, DOCs, and TXT files are allowed.'));
+                return;
             }
-        };
+
+            const filename = `${Date.now()}-${file.originalname}`;
+            const fileInfo = {
+                filename: filename,
+                bucketName: 'uploads',
+                metadata: {
+                    userId: req.body.userId || 'anonymous',
+                    contentType: file.mimetype,
+                    originalName: file.originalname,
+                    uploadedAt: new Date()
+                }
+            };
+            resolve(fileInfo);
+        });
     }
 });
 
@@ -53,14 +74,6 @@ const upload = multer({
     storage,
     limits: {
         fileSize: 10 * 1024 * 1024 // 10MB limit
-    },
-    fileFilter: (req, file, cb) => {
-        // Accept images and PDFs only
-        if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-            cb(null, true);
-        } else {
-            cb(new Error('Only images and PDF files are allowed!'), false);
-        }
     }
 });
 
@@ -108,12 +121,18 @@ const File = mongoose.model('File', fileSchema);
 // Error handling middleware
 const errorHandler = (err, req, res, next) => {
     console.error('Error:', err);
+    
     if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
             return res.status(400).json({ message: 'File is too large. Maximum size is 10MB' });
         }
         return res.status(400).json({ message: err.message });
     }
+    
+    if (err.message && err.message.includes('Invalid file type')) {
+        return res.status(400).json({ message: err.message });
+    }
+    
     res.status(500).json({ message: 'Internal server error' });
 };
 
@@ -256,6 +275,7 @@ app.delete('/api/delete/:fileId', async (req, res) => {
     }
 });
 
+// Make sure error handler is registered after all routes
 app.use(errorHandler);
 
 // Start server

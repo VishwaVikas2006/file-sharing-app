@@ -141,31 +141,58 @@ function handleFileSelect(e) {
     handleFiles(files);
 }
 
-async function handleFiles(files) {
-    for (const file of files) {
-        if (!isValidFile(file)) {
-            showMessage(`Invalid file type or size: ${file.name}`, 'error');
-            continue;
-        }
+function isValidFile(file) {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const allowedTypes = [
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'text/plain'
+    ];
+    
+    if (file.size > maxSize) {
+        throw new Error(`File ${file.name} is too large. Maximum size is 10MB`);
+    }
+    
+    if (!allowedTypes.includes(file.type)) {
+        throw new Error(`File ${file.name} has invalid type. Only images, PDFs, DOCs, and TXT files are allowed`);
+    }
+    
+    return true;
+}
 
+async function handleFiles(files) {
+    const uploadPromises = [];
+    const errors = [];
+
+    for (const file of files) {
         try {
-            await uploadFile(file);
-            showMessage(`${file.name} uploaded successfully`, 'success');
+            isValidFile(file);
+            uploadPromises.push(uploadFile(file));
         } catch (error) {
-            showMessage(`Failed to upload ${file.name}: ${error.message}`, 'error');
+            errors.push(error.message);
+        }
+    }
+
+    if (errors.length > 0) {
+        showMessage(errors.join('\n'), 'error');
+    }
+
+    if (uploadPromises.length > 0) {
+        try {
+            await Promise.all(uploadPromises);
+            showMessage('All valid files uploaded successfully', 'success');
+            loadFiles();
+        } catch (error) {
+            showMessage('Error uploading some files', 'error');
             console.error('Upload error:', error);
         }
     }
     
-    loadFiles();
     fileInput.value = '';
-}
-
-function isValidFile(file) {
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
-    
-    return file.size <= maxSize && allowedTypes.includes(file.type);
 }
 
 async function uploadFile(file) {
@@ -186,7 +213,7 @@ async function uploadFile(file) {
         const data = await response.json();
         
         if (!response.ok) {
-            throw new Error(data.message || 'Upload failed');
+            throw new Error(data.message || `Failed to upload ${file.name}`);
         }
 
         return data;
